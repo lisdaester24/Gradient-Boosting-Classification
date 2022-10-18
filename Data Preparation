@@ -1,0 +1,26 @@
+import pandas as pd
+import numpy as np
+import os
+import plotly.express as px
+
+def handle_data(df, independent):
+    numeric_var = [i for i in list(df[independent]) if df.dtypes[i] in ['float64', 'int64']]
+    data = df.dropna(axis=0)
+    for col in numeric_var:
+        q75, q25 = np.percentile(data.loc[:, col], [75, 25])
+        intr_qr = q75 - q25
+        max = q75 + (1.5 * intr_qr)
+        min = q25 - (1.5 * intr_qr)
+
+        data.drop(data.loc[data[col] < min, col].index, inplace=True)
+        data.drop(data.loc[data[col] > max, col].index, inplace=True)
+        # data.loc[data[col] < min, col] = np.nan
+        # data.loc[data[col] > max, col] = np.nan
+
+    # TRANSFORM DATA
+    for col in numeric_var:
+        data[col] = np.log10(data[col] + 1)
+    data.replace([np.inf, -np.inf], np.nan, inplace=True)
+    data = data.dropna(axis=0)
+    data = data.reset_index()
+    return data
