@@ -1,0 +1,52 @@
+import logging
+import pandas as pd
+import plotly.express as px
+from data import *
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import recall_score, precision_score, accuracy_score, f1_score
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+
+logging.basicConfig(filename='model_specific.log', level=logging.DEBUG,
+                    format='%(asctime)s:%(levelname)s:%(filename)s:%(funcName)s:%(message)s')
+
+
+def buildModel(data, target, independent, slider, bestModel):
+
+    try:
+        df = handle_data(data, independent)
+        x = df[independent]
+        y = df[target]
+        x_train, x_test, y_train, y_test = train_test_split(x, y, train_size=slider/100, random_state=1234)
+
+        if bestModel == 'DecisionTreeClassifier':
+            model = DecisionTreeClassifier()
+        elif bestModel == 'RandomForestClassifier':
+            model = RandomForestClassifier()
+        else:
+            model = GradientBoostingClassifier()
+
+        model.fit(x_train, y_train)
+        y_predict = model.predict(x_test)
+
+        end_data = pd.DataFrame(x_test)
+        end_data['Status'] = y_test
+        end_data['Predict'] = y_predict
+
+        accuracy = round(accuracy_score(y_test, y_predict), 2)
+        precision = round(precision_score(y_test, y_predict, average='weighted'), 2)
+        recall = round(recall_score(y_test, y_predict, average='weighted'), 2)
+        f1 = round(f1_score(y_test, y_predict, average='weighted'), 2)
+
+        cm = confusion_matrix(y_test, y_predict, labels=model.classes_)
+        fig_confusion = px.imshow(cm, text_auto=True, x=model.classes_, y=model.classes_)
+        logging.debug(accuracy)
+        logging.debug(precision)
+        logging.debug(recall)
+        logging.debug(f1)
+
+        return fig_confusion, precision, recall, accuracy, f1, end_data
+
+    except:
+        logging.exception('Something went wrong with AUC curve and Precision/Recall plot')
