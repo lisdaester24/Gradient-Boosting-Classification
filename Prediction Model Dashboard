@@ -1,0 +1,319 @@
+from dash import Dash, html, dcc, Input, Output, State
+import dash_bootstrap_components as dbc
+import dash_daq as daq
+import dash_table
+import io
+import base64
+from models import *
+from data import *
+from multiModel import multiModel
+
+# Top Element
+toast_datasplit = html.Div(
+    [
+        dbc.Toast(
+            html.Div([
+                html.Div('Data set split completed', style={'color': 'green', 'fontSize': 18}),
+            ], style={'marginBottom': 50, 'marginTop': 25}),
+            id="auto-toast",
+            duration=3000,
+            style={"position": "fixed", "top": 10, "right": 1, "width": 350},
+        ),
+    ]
+)
+
+toast_model = html.Div(
+    [
+        dbc.Toast(
+            html.Div([
+                html.Div('Model needs optimization', style={'color': 'red', 'fontSize': 18}),
+            ], style={'marginBottom': 50, 'marginTop': 25}),
+            id="auto-toast-model",
+            duration=4000,
+            style={"position": "fixed", "top": 30, "right": 1, "width": 350},
+        ),
+    ]
+)
+
+def parse_contents(contents, filename):
+    if contents is not None:
+        content_type, content_string = contents[0].split(',')
+        decoded = base64.b64decode(content_string)
+        try:
+            if 'csv' in filename[0]:
+                # Assume that the user uploaded a CSV file
+                df = pd.read_csv(
+                    io.StringIO(decoded.decode('utf-8')))
+            elif 'xls' in filename[0]:
+                # Assume that the user uploaded an excel file
+                df = pd.read_excel(io.BytesIO(decoded))
+
+        except Exception as e:
+            print(e)
+            return html.Div([
+                'There was an error processing this file.'
+            ])
+
+        # children = html.Div([
+        # html.H5(filename),
+        # dash_table.DataTable(
+        #     data=df.head().to_dict('records'),
+        #     columns=[{'name': i, 'id': i} for i in df.columns])
+        # ])
+        return df
+    else:
+        return None
+
+
+models = ['DecisionTreeClassifier', 'RandomForestClassifier', 'GradientBoostingClassifier']
+FONTSIZE = 20
+FONTCOLOR = "#F5FFFA"
+BGCOLOR = "#3445DB"
+
+app = Dash(__name__)
+obj_Data = pd.DataFrame()
+
+app.layout = html.Div([
+    # dcc.Store(id="aggregate_data"),
+    html.Div(id="output-clientside"),
+    html.Div([
+        html.Div(children=[
+            html.H1("PREDICTION MODELS", style={"margin-bottom": "0px"})
+        ], className="two-half column", id="title")
+
+    ], id="header", className="row flex-display", style={"margin-bottom": "25px"}),
+
+    html.Div([
+        # First Column
+        html.Div(children=[
+            html.P("File Upload:", className="control_label"),
+            html.Div([
+                dcc.Upload(id='upload-data',
+                           children=html.Div(['Drag and Drop or ',
+                                              html.A('Select Files')
+                                              ]),
+                           style={'width': '100%', 'height': '60px', 'lineHeight': '60px', 'borderWidth': '1px',
+                                  'borderStyle': 'dashed', 'borderRadius': '5px', 'textAlign': 'center',
+                                  'margin': '10px'},
+                           multiple=True
+                           )]),
+                # html.Div(id='output-data-upload')]),
+            html.Div(id='slider-output-container'),
+            html.Br(),
+            html.P("Select Train Test Ratio", className="control_label"),
+            daq.Slider(id='slider', min=5, max=95, value=70, disabled=True,
+                       handleLabel={"showCurrentValue": True, "label": "SPLIT"}, step=5),
+
+            html.P("Select Target", className="control_label"),
+            dcc.Dropdown(id="select_target", options=[],
+                         multi=False, value='', clearable=False, className="dcc_control"),
+
+            html.P("Select Variables", className="control_label"),
+            dcc.Dropdown(id="select_independent", options=[],
+                         value=[], multi=True, className="dcc_control"),
+
+            html.Div([
+                html.Div([
+                    html.P("Number of estimator", className="control_label"),
+                    daq.NumericInput(id='id-daq-estimator', min=50, max=100, size = 75, value=50)
+                ]),
+            html.Div([
+                    html.P("Number of max_depth", className="control_label"),
+                    daq.NumericInput(id='id-daq-max_depth', min=1, max=10, size = 75, value=3)
+                ]),
+            ], style={'display': 'flex', 'flex-direction': 'row'}),
+
+            html.P("Models", className="control_label"),
+            dcc.Dropdown(id="select_models", options=[{'label': x, 'value': x} for x in models], value=models, multi=True,
+                         clearable=False, className="dcc_control"),
+
+            html.Div(id='best-model', style={'color': 'blue', 'fontSize': 15}), html.Br(),
+            html.Button('RUN', id='button', disabled=True),
+            # daq.PowerButton(id='id-daq-switch-model',  on='True', color='#1ABC9C', size=75, label='Initiate Model Buidling'),
+
+        ], style={'padding': 10, 'flex': 1}, className="pretty_container four columns", id="cross-filter-options"),
+
+        # Second Column
+        html.Div(children=[
+
+            html.Div(html.Div(id='output-data-upload')),
+            html.Br(),
+            html.Div([
+                html.Div(children=[
+                    html.Div([
+                        daq.LEDDisplay(id='records', value=0, label="Records", size=FONTSIZE, color=FONTCOLOR,
+                                       backgroundColor=BGCOLOR)
+                    ], style={'display': 'flex', 'flex-direction': 'row'}), html.Br(),
+
+                    html.Div([
+                        daq.LEDDisplay(id='trainset', value=0, label="Train", size=FONTSIZE, color=FONTCOLOR,
+                                       backgroundColor=BGCOLOR),
+                        daq.LEDDisplay(id='testset', value=0, label="Test", size=FONTSIZE, color=FONTCOLOR,
+                                       backgroundColor=BGCOLOR ),
+                    ], style={'display': 'flex', 'flex-direction': 'row'}), html.Br(),
+
+                    html.Div([
+                        daq.LEDDisplay(id='precision', value=0, label="Precision", size=FONTSIZE, color=FONTCOLOR,
+                                       backgroundColor=BGCOLOR),
+                        daq.LEDDisplay(id='recall', value=0, label="Recall", size=FONTSIZE, color=FONTCOLOR,
+                                       backgroundColor=BGCOLOR),
+                    ], style={'display': 'flex', 'flex-direction': 'row'}), html.Br(),
+
+                    html.Div([
+                        daq.LEDDisplay(id='accuracy', value=0, label="Accuracy", size=FONTSIZE, color=FONTCOLOR,
+                                       backgroundColor=BGCOLOR),
+                        daq.LEDDisplay(id='f1-score', value=0, label="F1 Score", size=FONTSIZE, color=FONTCOLOR,
+                                       backgroundColor=BGCOLOR),
+                    ], style={'display': 'flex', 'flex-direction': 'row'}), html.Br()]),
+
+                html.Div(dcc.Graph(id="select_model_graph"))
+            ], style={'display': 'flex', 'flex-direction': 'row'})
+
+        ], style={'padding': 10, 'flex': 1}, className="pretty_container two columns", id="cross-filter-options1"),
+
+        # Third Column
+        html.Div([
+            html.Div([daq.GraduatedBar(id='model-graduated-bar', label="Model Performance",max = 100,
+                                       color={"ranges":{"green":[70,100],"yellow":[50,70],"red":[0,50]}},
+                                       showCurrentValue=True, value=0), html.Br(),
+                      html.Div(id='id-insights', style={'color': 'blue', 'fontSize': 15})]), html.Br(),
+            html.Div([dcc.Graph(id="confusion-matrix")]),
+            html.Div([
+                html.Button("Download CSV", id="btn_csv"),
+                dcc.Download(id="download-dataframe-csv")
+            ])
+
+        ], style={'padding': 10, 'flex': 1}, className="pretty_container six columns", id="cross-filter-options2")
+
+    ], className="row flex-display", style={'display': 'flex', 'flex-direction': 'row'}, id="mainContainer")
+], style={"display": "flex", "flex-direction": "column"})
+
+@app.callback([
+    Output('output-data-upload', 'children'),
+    Output("records", "value")],
+    [Input('upload-data', 'contents'),
+    Input('upload-data', 'filename')]
+)
+def update_output(contents, filename):
+    global obj_Data
+    if contents is not None:
+        df = parse_contents(contents, filename)
+        obj_Data = df
+        if df is not None:
+            children = html.Div([
+                html.H5(filename),
+                dash_table.DataTable(data=df.head().to_dict('records'),
+                                     columns=[{'name': i, 'id': i} for i in df.columns])
+            ])
+            records_ouput = str(df.shape[0])
+
+            return children, records_ouput
+    return None, ''
+
+@app.callback(
+    Output('slider', 'disabled'),
+    [
+        Input('output-data-upload', 'children')
+    ]
+)
+def toggleDisabledSlider(children):
+    if children is not None:
+        return False
+    else:
+        return True
+
+@app.callback(
+    [
+        Output('trainset', 'value'),
+        Output('testset', 'value'),
+    ],
+    [
+        Input('slider', 'value'),
+        Input('slider', 'disabled'),
+        Input("records", "value")
+    ]
+)
+def ChangeSliderValue(value, disabled, records):
+    if disabled is True:
+        return 0, 0
+    else:
+        rec = int(records)
+        result = int(value/100*rec)
+        return result, rec-result
+
+@app.callback(
+    [Output("select_target", "options"),
+     Output("select_independent", "options")],
+    [Input('output-data-upload', 'children')],
+)
+def populate_target(children):
+    if children is not None:
+        return [{'label': x, 'value': x} for x in obj_Data.columns],  [{'label': x, 'value': x} for x in obj_Data.columns]
+    return [], []
+
+@app.callback(
+    [
+        Output('button', 'disabled')
+    ],
+    [
+        Input('output-data-upload', 'children'),
+        Input('trainset', 'value'),
+        Input('testset', 'value'),
+        Input("select_target", "value"),
+        Input("select_independent", "value"),
+        Input("id-daq-max_depth", "value"),
+        Input("select_models", "value")
+    ]
+)
+def toggleButton(children, trainset, testset, target, independent, max_depth, select_models):
+    if children is None or trainset == 0 or testset == 0 or max_depth == 0 or len(select_models) == 0:
+        return [True]
+    return [False]
+
+@app.callback(
+    [
+        Output('select_model_graph', 'figure'),
+        Output("precision", 'value'),
+        Output("recall", 'value'),
+        Output("accuracy", 'value'),
+        Output("f1-score", 'value'),
+        Output('model-graduated-bar', 'value'),
+        Output('id-insights', 'children'),
+        Output('confusion-matrix', 'figure'),
+        Output("download-dataframe-csv", "data"),
+
+    ],
+    [
+        Input('button', 'n_clicks'),
+        Input("select_target", "value"),
+        Input("select_independent", "value"),
+        Input('slider', 'value'),
+        Input('id-daq-estimator', 'value'),
+        Input('id-daq-max_depth', 'value'),
+        Input("select_models", "value"),
+        Input("btn_csv", "n_clicks"),
+
+    ], prevent_initial_call=True
+)
+def measurePerformance(n_clicks, target, independent, slider, estimator, max_depth, selected_models, nclicks):
+    if n_clicks is not None:
+        fig_select_model, precision, recall, accuracy, f1, best_model, fig_confusion, data = multiModel.getModels(obj_Data, target, independent, slider, estimator, max_depth, selected_models)
+        top_model = f'The best performing model is {best_model} with accuracy of {accuracy}'
+        result = dcc.send_data_frame(data.to_csv, "Prediction Result.csv")
+        print("finished processing")
+        return fig_select_model, precision, recall, accuracy, f1, accuracy*100, top_model, fig_confusion, result
+    return px.box(), 0, 0, 0, 0, 0, px.imshow(), None
+
+@app.callback(
+    Output("select_independent", "value"),
+    [Input('select_target', 'value')],
+)
+def populate_variable(y):
+    if y != '':
+        return [x for x in obj_Data.columns if x != y]
+    return []
+
+if __name__ == '__main__':
+    app.run_server(debug=False)
+
+
