@@ -1,0 +1,53 @@
+from sklearn.model_selection import RepeatedStratifiedKFold, cross_val_score
+from models import *
+from data import *
+
+# Logging in DEBUG mode in the file model.log
+logging.basicConfig(filename='model.log', level=logging.DEBUG,
+                    format='%(asctime)s:%(levelname)s:%(filename)s:%(funcName)s:%(message)s')
+
+
+class multiModel:
+
+    def bestModel(data, target, independent, slider, estimator, max_depth, selected_models):
+
+        try:
+            df = handle_data(data, independent)
+            x = df[independent]
+            y = df[target]
+
+            best_model = ''
+            final_preds = {}
+            best_accuracy = 0
+
+            for model in selected_models:
+                cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3)
+                if model == 'DecisionTreeClassifier':
+                    clf = DecisionTreeClassifier(max_depth=max_depth)
+                elif model == 'RandomForestClassifier':
+                    clf = RandomForestClassifier(n_estimators=estimator, max_depth=max_depth)
+                else:
+                    clf = GradientBoostingClassifier(n_estimators=estimator, max_depth=max_depth)
+
+                score = cross_val_score(clf, x, y, scoring='accuracy', cv=cv)
+                avg_accuracy = sum(score)/len(score)
+                final_preds[model] = score
+                if avg_accuracy >= best_accuracy:
+                    best_accuracy = avg_accuracy
+                    best_model = model
+            fig_select_model = px.box(final_preds, y=selected_models)
+            return best_model, fig_select_model
+
+        except:
+            logging.exception('Something went wrong with model building process pipeline')
+
+    def getModels(df, target, independent, slider, estimator, max_depth, selected_models):
+
+        try:
+            best_model, fig_select_model = multiModel.bestModel(df, target, independent, slider, estimator, max_depth, selected_models)
+            fig_confusion, precision, recall, accuracy, f1, data = buildModel(df, target, independent, slider, best_model)
+            logging.debug('Model building successful')
+            return fig_select_model, precision, recall, accuracy, f1, best_model, fig_confusion, data
+
+        except:
+            logging.exception('Something went wrong.')
