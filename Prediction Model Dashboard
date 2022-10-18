@@ -4,8 +4,8 @@ import dash_daq as daq
 import dash_table
 import io
 import base64
-from models import *
-from data import *
+import pandas as pd
+import plotly.express as px
 from multiModel import multiModel
 
 # Top Element
@@ -315,5 +315,4 @@ def populate_variable(y):
 
 if __name__ == '__main__':
     app.run_server(debug=False)
-
 
